@@ -1,0 +1,45 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Build
+        run: bun run build
+
+      - name: Create dist zip
+        run: zip -r topiq-${{ github.ref_name }}.zip dist/
+
+      - name: Get tag message
+        id: tag_message
+        run: |
+          DELIMITER=$(openssl rand -hex 16)
+          echo "body<<${DELIMITER}" >> "$GITHUB_OUTPUT"
+          git tag -l --format='%(contents)' "${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          echo "${DELIMITER}" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2.3.2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          body: ${{ steps.tag_message.outputs.body }}
+          generate_release_notes: true
+          files: topiq-${{ github.ref_name }}.zip

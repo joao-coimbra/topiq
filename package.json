@@ -1,0 +1,74 @@
+{
+  "name": "topiq",
+  "description": "Type-safe MQTT client for TypeScript — define topics with Zod schemas and get fully typed publish, subscribe, and streaming",
+  "version": "0.1.0",
+  "type": "module",
+  "private": false,
+  "files": [
+    "dist"
+  ],
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
+    },
+    "./errors": {
+      "import": {
+        "types": "./dist/errors/index.d.ts",
+        "default": "./dist/errors/index.js"
+      }
+    },
+    "./package.json": "./package.json"
+  },
+  "keywords": [
+    "mqtt",
+    "mqtt-client",
+    "type-safe",
+    "typescript",
+    "zod",
+    "iot",
+    "pubsub",
+    "bun"
+  ],
+  "author": {
+    "name": "João Henrique Benatti Coimbra",
+    "url": "https://github.com/joao-coimbra"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/joao-coimbra/topiq#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/joao-coimbra/topiq.git"
+  },
+  "bugs": {
+    "url": "https://github.com/joao-coimbra/topiq/issues"
+  },
+  "scripts": {
+    "build": "bunup",
+    "dev": "bunup --watch",
+    "test": "bun test",
+    "check": "ultracite check",
+    "fix": "ultracite fix",
+    "release": "bun publish --access public",
+    "prepublishOnly": "bun run build",
+    "prepare": "bunx husky"
+  },
+  "dependencies": {
+    "mqtt": "^5.15.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.4.7",
+    "@types/bun": "latest",
+    "bunup": "^0.16.31",
+    "husky": "^9.1.7",
+    "ultracite": "7.3.2"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  }
+}
