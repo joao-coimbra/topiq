@@ -208,23 +208,26 @@ bun run release --tag next
 
 ```
 src/
-├── topiq.ts                              # TopiqClient class + topiq() factory
-├── topic.ts                              # Topic<Pattern, Output, Params> class + topic() factory
+├── topiq.ts          # TopiqClient class and topiq() factory
+├── topic.ts          # Topic class and topic() factory
 ├── types/
-│   ├── topic-pattern.ts                  # TopicPattern<T> — Express path → MQTT wildcard (type-level, tail-recursive)
-│   └── extract-params.ts                 # ExtractParamNames<T> | ExtractParams<T> (type-level)
+│   ├── index.ts            # Barrel — re-exports all public types
+│   ├── topic-pattern.ts    # TopicPattern<T> — Express path → MQTT wildcard (tail-recursive)
+│   └── extract-params.ts   # ExtractParams<T> — typed path param extraction
 └── errors/
+    ├── index.ts                          # Barrel — re-exports all error classes
+    ├── missing-param.error.ts            # Thrown by Topic.build() when a param is missing
+    ├── topic-pattern-mismatch.error.ts   # Thrown by extractParams() when topic doesn't match
     ├── topic-validation.error.ts         # Thrown by parse() when Zod validation fails
-    └── topic-pattern-mismatch.error.ts   # Thrown by extractParams() when topic doesn't match pattern
+    └── unregistered-topic.error.ts       # Thrown when a pattern is not registered
 ```
 
 Test infrastructure lives in `test/factories/` (not co-located with source).
 
 ## Key API Conventions
 
-- `Topic<Pattern, Output, Params>` — `Pattern` is the MQTT wildcard string (no leading slash), `Output` is the inferred Zod type, `Params` is the extracted params map
-- `topic()` return type uses inline `{ [K in ExtractParamNames<Path>]: string }` (not the `ExtractParams<T>` alias) — forces TypeScript to display concrete object types in IDE tooltips
-- `TopicPattern<T>` strips leading `/` at the type level via an internal `BuildTopicPattern` helper
-- `client.on()` callback: `(data, { topic, params }) => void` — second argument is a context object
-- `parse()` in `TopiqClient` throws `TopicPatternMismatchError` or `TopicValidationError` — never returns `null`
-- Error classes are exported from `topiq` (main) and `topiq/errors` (sub-path)
+- `Topic<TPath, TParams, TSchema>` — `TPath` is the Express-style path without leading slash (e.g. `"devices/:deviceId/status"`), `TParams` is `Params<{ deviceId: string }>`, `TSchema` is the Zod schema type
+- `Topic.build(params)` returns a concrete topic string (e.g. `"devices/abc/status"`) — this is what you pass to `client.emit()`
+- `client.emit()` takes a concrete topic string, never a `Topic` instance — always use `.build()` or a literal string
+- `client.on()` / `client.stream()` callback: `(data, { topic, params }) => void` — `topic` is the raw MQTT string, `params` is the extracted path params
+- All four error classes are exported from the main `topiq` entry point
