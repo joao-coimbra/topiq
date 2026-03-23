@@ -1,0 +1,39 @@
+name: E2E
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Start MQTT broker
+        run: |
+          docker run -d \
+            --name topiq-mqtt-e2e \
+            -p 1883:1883 \
+            -v ${{ github.workspace }}/test/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro \
+            eclipse-mosquitto:2
+          docker exec topiq-mqtt-e2e mosquitto_sub -t '#' -C 1 -W 5 -q 0 || true
+
+      - name: Run e2e tests
+        run: bun test --preload ./test/setup-e2e.ts src/topiq.e2e-spec.ts
+        env:
+          E2E_MQTT_HOST: localhost
+
+      - name: Stop MQTT broker
+        if: always()
+        run: docker rm -f topiq-mqtt-e2e
