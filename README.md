@@ -39,8 +39,9 @@ client.on('message', (topic, payload) => {
 // ✅ After — typed topics, validated payloads, zero boilerplate
 const client = topiq(config, { topics: { deviceStatus } })
 
-client.on(deviceStatus, (data) => {
-  console.log(data.online) // boolean — inferred from your Zod schema
+client.on(deviceStatus, (data, { topic, params }) => {
+  console.log(data.online)      // boolean — inferred from your Zod schema
+  console.log(params.deviceId)  // string — extracted from the MQTT topic
 })
 ```
 
@@ -88,8 +89,6 @@ const telemetry = topic('/devices/:deviceId/telemetry', z.object({
 }))
 ```
 
----
-
 ### Create a client
 
 ```ts
@@ -110,39 +109,39 @@ const client = topiq({
 })
 ```
 
----
-
 ### Subscribe — `on()`
 
 ```ts
 const unsubscribe = client.on(deviceStatus, (data, { topic, params }) => {
   // data is fully typed: { online: boolean, battery: number }
   console.log(data.online, data.battery)
-  console.log(params.deviceId) // typed path param, e.g. "abc-123"
-  console.log(topic)           // raw MQTT topic, e.g. "devices/abc-123/status"
+  console.log(params.deviceId) // e.g. "abc-123"
+  console.log(topic)           // e.g. "devices/abc-123/status"
 })
 
-// Remove the handler when done
-unsubscribe()
+unsubscribe() // remove the handler when done
 ```
-
----
 
 ### Publish — `emit()`
 
+Use `.build()` to construct the concrete topic string before publishing:
+
 ```ts
-client.emit(deviceStatus, {
-  online: true,
-  battery: 87,
-  // TypeScript enforces the shape — wrong fields are a compile error
-})
+client.emit(
+  deviceStatus.build({ deviceId: 'abc-123' }),
+  { online: true, battery: 87 }
+)
 ```
 
----
+Or pass the topic string directly if you already have it:
+
+```ts
+client.emit('devices/abc-123/status', { online: true, battery: 87 })
+```
 
 ### Stream — `stream()`
 
-Consume messages as an async iterable. Use an `AbortSignal` to stop the stream:
+Consume messages as an async iterable. Pass an `AbortSignal` to stop the stream:
 
 ```ts
 const controller = new AbortController()
@@ -152,15 +151,10 @@ for await (const { data, topic } of client.stream(telemetry, controller.signal))
   console.log(topic) // e.g. "devices/abc-123/telemetry"
 }
 
-// Stop the stream from outside
-controller.abort()
+controller.abort() // stop the stream
 ```
 
----
-
 ### TLS
-
-Pass `tls: true` to use MQTTS with the default port (8883), or provide certificates explicitly:
 
 ```ts
 // Automatic — switches to mqtts:// and port 8883
@@ -170,9 +164,9 @@ const client = topiq({ host: 'broker.example.com', tls: true }, { topics })
 const client = topiq({
   host: 'broker.example.com',
   tls: {
-    ca: Bun.file('ca.crt').text(),
-    key: Bun.file('client.key').text(),
-    cert: Bun.file('client.crt').text(),
+    ca: await Bun.file('ca.crt').text(),
+    key: await Bun.file('client.key').text(),
+    cert: await Bun.file('client.crt').text(),
   },
 }, { topics })
 ```
@@ -186,16 +180,17 @@ const client = topiq({
 Creates a typed topic definition.
 
 ```ts
-topic('/devices/:deviceId/status', z.object({ online: z.boolean() }))
+const deviceStatus = topic('/devices/:deviceId/status', z.object({
+  online: z.boolean(),
+}))
 ```
 
-| Property | Description |
+| Property / Method | Description |
 |---|---|
-| `.path` | The original path string, e.g. `"/devices/:deviceId/status"` |
-| `.topic` | The MQTT wildcard pattern, e.g. `"devices/+/status"` |
-| `.schema` | The Zod schema |
-| `.extractParams(mqttTopic)` | Returns `{ deviceId: string }` from a live MQTT topic string. Throws `TopicPatternMismatchError` if the topic doesn't match |
-| `.parse(data)` | Validates `data` against the schema. Throws `TopicValidationError` on failure |
+| `.topic` | MQTT wildcard pattern, e.g. `"devices/+/status"` |
+| `.schema` | The Zod schema instance |
+| `.build(params)` | Builds a concrete topic string, e.g. `"devices/abc-123/status"`. Throws `MissingParamError` if a param is missing. |
+| `.extractParams(mqttTopic)` | Extracts path params from a live MQTT topic string. Throws `TopicPatternMismatchError` if the topic doesn't match. |
 
 ---
 
@@ -207,11 +202,10 @@ Creates a `TopiqClient`.
 
 | Field | Type | Description |
 |---|---|---|
-| `url` | `string` | Full broker URL (alternative to host/port) |
+| `url` | `string` | Full broker URL, e.g. `"mqtt://broker.example.com:1883"` |
 | `host` | `string` | Broker hostname |
-| `port` | `number` | Broker port (default: `1883` / `8883` with TLS) |
-| `protocol` | `string` | Protocol (default: `"mqtt"` / `"mqtts"` with TLS) |
-| `tls` | `true \| TLSConfig` | Enable TLS or provide certificates |
+| `port` | `number` | Default: `1883`, or `8883` with TLS |
+| `tls` | `true \| TLSConfig` | Enable TLS or provide certificate material |
 | `username` | `string` | Auth username |
 | `password` | `string` | Auth password |
 
@@ -221,23 +215,32 @@ Creates a `TopiqClient`.
 
 | Method | Description |
 |---|---|
-| `.on(topic, (data, { topic, params }) => void)` | Subscribe and receive validated payloads. Throws on invalid messages. Returns an unsubscribe function. |
-| `.emit(topic, data)` | Publish a typed payload to a topic. |
-| `.stream(topic, signal?)` | Returns an `AsyncIterable` of `{ data, topic }` messages. |
+| `.on(topic, (data, { topic, params }) => void)` | Subscribe and receive validated payloads. Returns an unsubscribe function. |
+| `.emit(concreteTopic, data)` | Publish a typed payload to a concrete topic string. |
+| `.stream(topic, signal?)` | Returns an `AsyncIterable<{ data, topic }>`. |
+| `.ready(timeout?)` | Resolves when connected. Rejects after `timeout` ms (default: 1000). |
 | `.disconnect()` | Close the MQTT connection. |
+| `.isConnected` | `true` when the underlying client is connected. |
+
+---
 
 ### Errors
 
-Import error classes from the `/errors` sub-path:
-
 ```ts
-import { TopicPatternMismatchError, TopicValidationError } from 'topiq/errors'
+import {
+  MissingParamError,
+  TopicPatternMismatchError,
+  TopicValidationError,
+  UnregisteredTopicError,
+} from 'topiq'
 ```
 
-| Error | Thrown by | Description |
-|---|---|---|
-| `TopicValidationError` | `topic.schema.parse()`, `client.on()`, `client.stream()` | Payload doesn't satisfy the Zod schema |
-| `TopicPatternMismatchError` | `topic.extractParams()`, `client.on()`, `client.stream()` | MQTT topic doesn't match the topic's pattern |
+| Error | Description |
+|---|---|
+| `TopicValidationError` | Payload failed Zod schema validation |
+| `TopicPatternMismatchError` | MQTT topic string doesn't match the registered pattern |
+| `MissingParamError` | A required path param was missing from a `.build()` call |
+| `UnregisteredTopicError` | A topic pattern is not registered with the client |
 
 ---
 
@@ -245,30 +248,17 @@ import { TopicPatternMismatchError, TopicValidationError } from 'topiq/errors'
 
 ```
 src/
-├── topiq.ts                              # Client factory and TopiqClient class
-├── topic.ts                              # Topic definition and param extraction
+├── topiq.ts          # TopiqClient class and topiq() factory
+├── topic.ts          # Topic class and topic() factory
 ├── types/
-│   ├── topic-pattern.ts                  # TopicPattern<T> — path → MQTT wildcard (type-level)
-│   └── extract-params.ts                 # ExtractParamNames<T> / ExtractParams<T> (type-level)
+│   ├── topic-pattern.ts    # TopicPattern<T> — Express path → MQTT wildcard
+│   └── extract-params.ts   # ExtractParams<T> — typed path param extraction
 └── errors/
-    ├── topic-validation.error.ts         # Thrown when payload fails Zod validation
-    └── topic-pattern-mismatch.error.ts   # Thrown when MQTT topic doesn't match pattern
+    ├── missing-param.error.ts
+    ├── topic-pattern-mismatch.error.ts
+    ├── topic-validation.error.ts
+    └── unregistered-topic.error.ts
 ```
-
-The type-level utilities (`TopicPattern`, `ExtractParams`) are tail-recursive — they handle 200+ wildcards without hitting the TypeScript compiler stack limit.
-
----
-
-## Technology Stack
-
-| | |
-|---|---|
-| **Language** | TypeScript 5+ |
-| **Runtime / Package Manager** | [Bun](https://bun.sh) |
-| **Test Framework** | `bun:test` (built-in) |
-| **Schema Validation** | [Zod](https://zod.dev) |
-| **MQTT Client** | [mqtt.js](https://github.com/mqttjs/MQTT.js) |
-| **Linter / Formatter** | [Biome](https://biomejs.dev) via [Ultracite](https://ultracite.dev) |
 
 ---
 
@@ -278,11 +268,9 @@ Requirements: **Bun >= 1.0**
 
 ```bash
 bun install          # install dependencies
-bun test             # run tests
+bun test             # run unit tests
 bun x ultracite fix  # lint + format
 ```
-
-Test files are `*.spec.ts` co-located with the source they test.
 
 ---
 
