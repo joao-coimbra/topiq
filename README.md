@@ -115,10 +115,11 @@ const client = topiq({
 ### Subscribe — `on()`
 
 ```ts
-const unsubscribe = client.on(deviceStatus, (data, rawTopic) => {
+const unsubscribe = client.on(deviceStatus, (data, { topic, params }) => {
   // data is fully typed: { online: boolean, battery: number }
   console.log(data.online, data.battery)
-  console.log(rawTopic) // e.g. "devices/abc-123/status"
+  console.log(params.deviceId) // typed path param, e.g. "abc-123"
+  console.log(topic)           // raw MQTT topic, e.g. "devices/abc-123/status"
 })
 
 // Remove the handler when done
@@ -193,8 +194,8 @@ topic('/devices/:deviceId/status', z.object({ online: z.boolean() }))
 | `.path` | The original path string, e.g. `"/devices/:deviceId/status"` |
 | `.topic` | The MQTT wildcard pattern, e.g. `"devices/+/status"` |
 | `.schema` | The Zod schema |
-| `.extractParams(mqttTopic)` | Returns `{ deviceId: string }` from a live MQTT topic string |
-| `.parse(data)` | Validates `data` against the schema, throws `TopicValidationError` on failure |
+| `.extractParams(mqttTopic)` | Returns `{ deviceId: string }` from a live MQTT topic string. Throws `TopicPatternMismatchError` if the topic doesn't match |
+| `.parse(data)` | Validates `data` against the schema. Throws `TopicValidationError` on failure |
 
 ---
 
@@ -220,10 +221,23 @@ Creates a `TopiqClient`.
 
 | Method | Description |
 |---|---|
-| `.on(topic, callback)` | Subscribe and receive validated payloads. Returns an unsubscribe function. |
+| `.on(topic, (data, { topic, params }) => void)` | Subscribe and receive validated payloads. Throws on invalid messages. Returns an unsubscribe function. |
 | `.emit(topic, data)` | Publish a typed payload to a topic. |
 | `.stream(topic, signal?)` | Returns an `AsyncIterable` of `{ data, topic }` messages. |
 | `.disconnect()` | Close the MQTT connection. |
+
+### Errors
+
+Import error classes from the `/errors` sub-path:
+
+```ts
+import { TopicPatternMismatchError, TopicValidationError } from 'topiq/errors'
+```
+
+| Error | Thrown by | Description |
+|---|---|---|
+| `TopicValidationError` | `topic.schema.parse()`, `client.on()`, `client.stream()` | Payload doesn't satisfy the Zod schema |
+| `TopicPatternMismatchError` | `topic.extractParams()`, `client.on()`, `client.stream()` | MQTT topic doesn't match the topic's pattern |
 
 ---
 
@@ -231,14 +245,14 @@ Creates a `TopiqClient`.
 
 ```
 src/
-├── topiq.ts                      # Client factory and TopiqClient class
-├── topic.ts                      # Topic definition and param extraction
+├── topiq.ts                              # Client factory and TopiqClient class
+├── topic.ts                              # Topic definition and param extraction
 ├── types/
-│   ├── topic-pattern.ts          # TopicPattern<T> — path → MQTT wildcard (type-level)
-│   ├── extract-params.ts         # ExtractParams<T> — path → param object (type-level)
-│   └── topic-event.ts            # TopicEvent<Path, Output> interface
+│   ├── topic-pattern.ts                  # TopicPattern<T> — path → MQTT wildcard (type-level)
+│   └── extract-params.ts                 # ExtractParamNames<T> / ExtractParams<T> (type-level)
 └── errors/
-    └── topic-validation.error.ts # Zod validation error wrapper
+    ├── topic-validation.error.ts         # Thrown when payload fails Zod validation
+    └── topic-pattern-mismatch.error.ts   # Thrown when MQTT topic doesn't match pattern
 ```
 
 The type-level utilities (`TopicPattern`, `ExtractParams`) are tail-recursive — they handle 200+ wildcards without hitting the TypeScript compiler stack limit.
