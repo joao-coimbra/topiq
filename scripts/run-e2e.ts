@@ -4,7 +4,7 @@ const files = [...new Glob("src/**/*.e2e-spec.ts").scanSync(".")].map(
   (file) => `./${file}`
 )
 
-await Bun.$`docker compose -f docker-compose.e2e.yml up -d`
+await Bun.$`docker compose -f docker-compose.e2e.yml up -d --wait`
 
 try {
   const result = Bun.spawnSync(
