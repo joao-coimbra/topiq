@@ -51,6 +51,7 @@
     "build": "bunup",
     "dev": "bunup --watch",
     "test": "bun test",
+    "test:e2e": "bun scripts/run-e2e.ts",
     "check": "ultracite check",
     "fix": "ultracite fix",
     "release": "bun publish --access public",
