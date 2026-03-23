@@ -10,7 +10,11 @@ export type ExtractParamNames<
   ? ExtractParamNames<Rest, Acc | Param>
   : T extends `${string}/:${infer Param}`
     ? Acc | Param
-    : Acc
+    : T extends `:${infer Param}/${infer Rest}`
+      ? ExtractParamNames<Rest, Acc | Param>
+      : T extends `:${infer Param}`
+        ? Acc | Param
+        : Acc
 
 /**
  * Extracts typed params from a path like '/ward/:wardId/bed/:bedId'
