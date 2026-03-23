@@ -17,7 +17,6 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
 # dotenv environment variable files
 .env
-.env.test
 .env.development.local
 .env.test.local
 .env.production.local
