@@ -21,5 +21,8 @@
       }
     }
   },
-  "javascript": { "formatter": { "semicolons": "asNeeded" } }
+  "javascript": {
+    "formatter": { "semicolons": "asNeeded" },
+    "globals": ["Bun"]
+  }
 }
