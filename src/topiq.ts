@@ -1,5 +1,5 @@
 import mqtt, { type MqttClient as MqttClientType } from "mqtt"
-import type { ZodType } from "zod"
+import { TopicPatternMismatchError, TopicValidationError } from "./errors"
 import type { Topic } from "./topic"
 
 // --- Config ---
@@ -43,7 +43,7 @@ type ClientConfig = (UrlConfig | HostConfig) & {
   password?: string
 }
 
-type TopicsMap = Record<string, Topic<string, ZodType>>
+type TopicsMap = Record<string, Topic<string, unknown, Record<string, string>>>
 
 interface TopiqOptions<Topics extends TopicsMap> {
   /** Named map of topic definitions to register with the client */
@@ -63,15 +63,24 @@ type PatternOf<Topics extends TopicsMap> = Topics[keyof Topics]["topic"]
 
 type TopicByPattern<Topics extends TopicsMap, Pattern extends string> = Extract<
   Topics[keyof Topics],
-  Topic<Pattern, ZodType>
+  Topic<Pattern, unknown, Record<string, string>>
 >
 
-type InferPayload<Subject extends Topic<string, ZodType>> =
-  Subject extends Topic<string, infer Schema extends ZodType>
-    ? Schema["_output"]
+type InferPayload<
+  Subject extends Topic<string, unknown, Record<string, string>>,
+> =
+  Subject extends Topic<string, infer Output, Record<string, string>>
+    ? Output
     : never
 
-/** A message yielded by {@link TopiqClient.stream} */
+type InferParams<
+  Subject extends Topic<string, unknown, Record<string, string>>,
+> =
+  Subject extends Topic<string, unknown, infer Params>
+    ? Params
+    : Record<string, string>
+
+/** A message yielded by {@link TopiqClient["stream"]} */
 export interface StreamMessage<T> {
   /** The raw MQTT topic string that delivered this message */
   topic: string
@@ -83,7 +92,10 @@ export interface StreamMessage<T> {
 
 class TopiqClient<Topics extends TopicsMap> {
   private readonly client: MqttClientType
-  private readonly topicsMap = new Map<string, Topic<string, ZodType>>()
+  private readonly topicsMap = new Map<
+    string,
+    Topic<string, unknown, Record<string, string>>
+  >()
   private readonly handlers = new Set<RawMessageHandler>()
   private readonly subscriptions = new Set<string>()
 
@@ -109,12 +121,15 @@ class TopiqClient<Topics extends TopicsMap> {
    * The MQTT subscription is established lazily on the first call for a given pattern.
    *
    * @param topic - A registered `Topic` instance or its MQTT wildcard pattern string
-   * @param callback - Called with the validated payload and the raw MQTT topic string
+   * @param callback - Invoked with the validated payload as `data` and a context object
+   *   containing the raw `topic` string and the extracted `params` map
    * @returns An unsubscribe function — call it to stop receiving messages
    *
    * @example
-   * const off = client.on(deviceStatus, (data, rawTopic) => {
-   *   console.log(data.online, rawTopic)
+   * const off = client.on(deviceStatus, (data, { topic, params }) => {
+   *   console.log(data.online)   // typed payload
+   *   console.log(params.deviceId) // typed path param
+   *   console.log(topic)         // raw MQTT topic string, e.g. "devices/abc/status"
    * })
    * off() // unsubscribe
    */
@@ -122,19 +137,27 @@ class TopiqClient<Topics extends TopicsMap> {
     topic: TopicByPattern<Topics, Pattern> | Pattern,
     callback: (
       data: InferPayload<TopicByPattern<Topics, Pattern>>,
-      topic: string
+      context: {
+        topic: string
+        params: InferParams<TopicByPattern<Topics, Pattern>>
+      }
     ) => void
   ): () => void {
     const resolved = this.resolve(topic)
     this.ensureSubscribed(resolved.topic)
 
     const handler: RawMessageHandler = (incomingTopic, payload) => {
-      const data = this.parse(resolved, incomingTopic, payload)
-      if (data !== null) {
-        callback(
-          data as InferPayload<TopicByPattern<Topics, Pattern>>,
-          incomingTopic
-        )
+      try {
+        const data = this.parse(resolved, incomingTopic, payload)
+        callback(data as InferPayload<TopicByPattern<Topics, Pattern>>, {
+          topic: incomingTopic,
+          params: resolved.extractParams(incomingTopic) as InferParams<
+            TopicByPattern<Topics, Pattern>
+          >,
+        })
+      } catch {
+        // TODO: expose an onError hook so callers can handle validation/pattern
+        // errors without crashing the process (e.g. dead-letter queue, metrics).
       }
     }
 
@@ -147,7 +170,7 @@ class TopiqClient<Topics extends TopicsMap> {
    * The payload is serialized as JSON before sending.
    *
    * @param topic - A registered `Topic` instance or its MQTT wildcard pattern string
-   * @param data - The payload to publish, typed according to the topic's schema
+   * @param data - The payload to publish — must match the topic's schema type
    *
    * @example
    * client.emit(deviceStatus, { online: true, battery: 87 })
@@ -162,7 +185,10 @@ class TopiqClient<Topics extends TopicsMap> {
 
   /**
    * Returns an async iterable that yields validated messages as they arrive.
-   * Messages are buffered internally so no message is lost between iterations.
+   * Messages are buffered internally so no message is dropped between iterations.
+   *
+   * Each yielded value is a `{ data, topic }` object where `data` is the validated
+   * payload and `topic` is the raw MQTT topic string that delivered the message.
    *
    * @param topic - A registered `Topic` instance or its MQTT wildcard pattern string
    * @param signal - Optional `AbortSignal` to terminate the stream early
@@ -172,7 +198,8 @@ class TopiqClient<Topics extends TopicsMap> {
    * const controller = new AbortController()
    *
    * for await (const { data, topic } of client.stream(telemetry, controller.signal)) {
-   *   console.log(data.temperature)
+   *   console.log(data.temperature) // typed payload field
+   *   console.log(topic)            // raw MQTT topic, e.g. "sensors/42/telemetry"
    * }
    *
    * controller.abort() // stop the stream
@@ -201,21 +228,22 @@ class TopiqClient<Topics extends TopicsMap> {
     signal?.addEventListener("abort", cleanup)
 
     const handler: RawMessageHandler = (incomingTopic, payload) => {
-      const data = this.parse(resolved, incomingTopic, payload)
-      if (data === null) {
-        return
-      }
+      try {
+        const data = this.parse(resolved, incomingTopic, payload)
+        const message = {
+          topic: incomingTopic,
+          data: data as InferPayload<TopicByPattern<Topics, Pattern>>,
+        }
 
-      const message = {
-        topic: incomingTopic,
-        data: data as InferPayload<TopicByPattern<Topics, Pattern>>,
-      }
-
-      if (resolve) {
-        resolve({ value: message, done: false })
-        resolve = null
-      } else {
-        queue.push(message)
+        if (resolve) {
+          resolve({ value: message, done: false })
+          resolve = null
+        } else {
+          queue.push(message)
+        }
+      } catch {
+        // TODO: expose an onError hook so callers can handle validation/pattern
+        // errors without crashing the process (e.g. dead-letter queue, metrics).
       }
     }
 
@@ -247,9 +275,9 @@ class TopiqClient<Topics extends TopicsMap> {
 
   // --- Internals ---
 
-  private resolve<Subject extends Topic<string, ZodType>>(
-    input: Subject | string
-  ): Subject {
+  private resolve<
+    Subject extends Topic<string, unknown, Record<string, string>>,
+  >(input: Subject | string): Subject {
     if (typeof input !== "string") {
       return input
     }
@@ -281,16 +309,22 @@ class TopiqClient<Topics extends TopicsMap> {
     )
   }
 
-  private parse<Subject extends Topic<string, ZodType>>(
+  private parse<Subject extends Topic<string, unknown>>(
     topic: Subject,
     incomingTopic: string,
     payload: Buffer
-  ): InferPayload<Subject> | null {
+  ): InferPayload<Subject> {
     if (!this.matchTopic(topic.topic, incomingTopic)) {
-      return null
+      throw new TopicPatternMismatchError(incomingTopic, topic.topic)
     }
+
     const result = topic.schema.safeParse(this.parseJson(payload))
-    return result.success ? (result.data as InferPayload<Subject>) : null
+
+    if (!result.success) {
+      throw new TopicValidationError(topic.topic, result.error)
+    }
+
+    return result.data as InferPayload<Subject>
   }
 
   private connect() {
