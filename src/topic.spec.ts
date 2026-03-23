@@ -27,6 +27,11 @@ describe("topic()", () => {
       expect(t.topic).toBe("ward/+/bed/+/event")
     })
 
+    it("should replace consecutive params with +", () => {
+      const t = topic("/:wardId/:bedId", statusSchema)
+      expect(t.topic).toBe("+/+")
+    })
+
     it("should handle a trailing param", () => {
       const t = topic("/devices/:deviceId", statusSchema)
       expect(t.topic).toBe("devices/+")
@@ -51,6 +56,14 @@ describe("topic()", () => {
       expect(t.extractParams("ward/42/bed/7/event")).toEqual({
         wardId: "42",
         bedId: "7",
+      })
+    })
+
+    it("should extract consecutive params", () => {
+      const t = topic("/:wardId/:bedId", statusSchema)
+      expect(t.extractParams("ward42/bed7")).toEqual({
+        wardId: "ward42",
+        bedId: "bed7",
       })
     })
 

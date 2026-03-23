@@ -5,11 +5,13 @@
 type BuildTopicPattern<
   T extends string,
   Acc extends string = "",
-> = T extends `${infer Before}/:${infer _Param}/${infer After}`
-  ? BuildTopicPattern<After, `${Acc}${Before}/+/`>
-  : T extends `${infer Before}/:${infer _Param}`
-    ? `${Acc}${Before}/+`
-    : `${Acc}${T}`
+> = T extends `:${infer _Param}/${infer After}`
+  ? BuildTopicPattern<After, `${Acc}+/`>
+  : T extends `:${infer _Param}`
+    ? `${Acc}+`
+    : T extends `${infer Before}/${infer After}`
+      ? BuildTopicPattern<After, `${Acc}${Before}/`>
+      : `${Acc}${T}`
 
 /**
  * Converts a typed path like '/ward/:wardId/bed/:bedId/event'

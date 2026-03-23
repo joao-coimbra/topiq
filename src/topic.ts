@@ -48,11 +48,11 @@ export class Topic<
   extractParams(mqttTopic: string): Params {
     const paramNames: string[] = []
     const regexStr = this.path
-      .replace(LEADING_SLASH, "")
       .replace(PARAM_WILDCARD, (_, name: string) => {
         paramNames.push(name)
         return "/([^/]+)"
       })
+      .replace(LEADING_SLASH, "")
 
     const match = mqttTopic.match(new RegExp(`^${regexStr}$`))
     if (!match) {
