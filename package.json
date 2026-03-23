@@ -1,7 +1,7 @@
 {
   "name": "topiq",
   "description": "Type-safe MQTT client for TypeScript — define topics with Zod schemas and get fully typed publish, subscribe, and streaming",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "private": false,
   "files": [
