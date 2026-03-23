@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test"
 import { z } from "zod"
-import { TopicPatternMismatchError } from "./errors/topic-pattern-mismatch.error"
+import { MissingParamError, TopicPatternMismatchError } from "./errors"
 import { topic } from "./topic"
 
 const statusSchema = z.object({ online: z.boolean(), battery: z.number() })
@@ -40,6 +40,35 @@ describe("topic()", () => {
     it("should return the path unchanged when there are no params", () => {
       const t = topic("/static/topic", statusSchema)
       expect(t.topic).toBe("static/topic")
+    })
+  })
+
+  describe(".build()", () => {
+    it("should substitute a single param", () => {
+      const t = topic("/devices/:deviceId/status", statusSchema)
+      expect(t.build({ deviceId: "abc-123" })).toBe("devices/abc-123/status")
+    })
+
+    it("should substitute multiple params", () => {
+      const t = topic("/ward/:wardId/bed/:bedId/event", statusSchema)
+      expect(t.build({ wardId: "42", bedId: "7" })).toBe("ward/42/bed/7/event")
+    })
+
+    it("should substitute consecutive params", () => {
+      const t = topic("/:wardId/:bedId", statusSchema)
+      expect(t.build({ wardId: "w1", bedId: "b2" })).toBe("w1/b2")
+    })
+
+    it("should return the topic unchanged when there are no params", () => {
+      const t = topic("/events", statusSchema)
+      expect(t.build()).toBe("events")
+    })
+
+    it("should throw when a required param is missing", () => {
+      const t = topic("/devices/:deviceId/status", statusSchema)
+      expect(() => t.build({} as { deviceId: string })).toThrow(
+        MissingParamError
+      )
     })
   })
 

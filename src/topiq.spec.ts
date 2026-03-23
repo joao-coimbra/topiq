@@ -114,16 +114,19 @@ describe("topiq()", () => {
   })
 
   describe("emit()", () => {
-    it("should call publish with the MQTT pattern string and JSON-serialized payload", () => {
+    it("should call publish with the concrete topic string and JSON-serialized payload", () => {
       const client = topiq(
         { host: "broker.example.com" },
         { topics: { status } }
       )
 
-      client.emit(status, { online: true, battery: 95 })
+      client.emit(status.build({ deviceId: "abc" }), {
+        online: true,
+        battery: 95,
+      })
 
       expect(fakeMqtt.client.publish).toHaveBeenCalledWith(
-        "devices/+/status",
+        "devices/abc/status",
         JSON.stringify({ online: true, battery: 95 })
       )
     })
