@@ -1,9 +1,4 @@
-/**
- * Extracts the union of param names from a path like '/ward/:wardId/bed/:bedId'
- * → 'wardId' | 'bedId'
- * Tail-recursive — same guarantee as TopicPattern.
- */
-export type ExtractParamNames<
+type ExtractParamNames<
   T extends string,
   Acc extends string = never,
 > = T extends `${string}/:${infer Param}/${infer Rest}`
@@ -16,10 +11,9 @@ export type ExtractParamNames<
         ? Acc | Param
         : Acc
 
-/**
- * Extracts typed params from a path like '/ward/:wardId/bed/:bedId'
- * → { wardId: string; bedId: string }
- */
-export type ExtractParams<T extends string> = {
-  [K in ExtractParamNames<T>]: string
-}
+/** Extracts typed path params from an Express-style path. Returns `never` when there are no params. */
+export type ExtractParams<T extends string> = [ExtractParamNames<T>] extends [
+  never,
+]
+  ? never
+  : { [K in ExtractParamNames<T>]: string }

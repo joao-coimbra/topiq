@@ -1,6 +1,11 @@
 import mqtt, { type MqttClient as MqttClientType } from "mqtt"
-import { TopicPatternMismatchError, TopicValidationError } from "./errors"
-import type { Topic } from "./topic"
+import type { ZodType, z } from "zod"
+import {
+  TopicPatternMismatchError,
+  TopicValidationError,
+  UnregisteredTopicError,
+} from "./errors"
+import type { ConcreteTopic, Topic } from "./topic"
 
 // --- Config ---
 
@@ -43,7 +48,7 @@ type ClientConfig = (UrlConfig | HostConfig) & {
   password?: string
 }
 
-type TopicsMap = Record<string, Topic<string, unknown, Record<string, string>>>
+type TopicsMap = Record<string, Topic<string, unknown, ZodType>>
 
 interface TopiqOptions<Topics extends TopicsMap> {
   /** Named map of topic definitions to register with the client */
@@ -61,24 +66,18 @@ type RawMessageHandler = (topic: string, payload: Buffer) => void
 
 type PatternOf<Topics extends TopicsMap> = Topics[keyof Topics]["topic"]
 
-type TopicByPattern<Topics extends TopicsMap, Pattern extends string> = Extract<
-  Topics[keyof Topics],
-  Topic<Pattern, unknown, Record<string, string>>
->
+type TopicByPattern<
+  Topics extends TopicsMap,
+  MQTTPattern extends string,
+> = Extract<Topics[keyof Topics], { readonly topic: MQTTPattern }>
 
-type InferPayload<
-  Subject extends Topic<string, unknown, Record<string, string>>,
-> =
-  Subject extends Topic<string, infer Output, Record<string, string>>
-    ? Output
+type InferPayload<Subject extends Topic<string, unknown, ZodType>> =
+  Subject extends Topic<string, unknown, infer TSchema extends ZodType>
+    ? z.infer<TSchema>
     : never
 
-type InferParams<
-  Subject extends Topic<string, unknown, Record<string, string>>,
-> =
-  Subject extends Topic<string, unknown, infer Params>
-    ? Params
-    : Record<string, string>
+type InferParams<Subject extends Topic<string, unknown, ZodType>> =
+  Subject extends Topic<string, infer TParams, ZodType> ? TParams : never
 
 /** A message yielded by {@link TopiqClient["stream"]} */
 export interface StreamMessage<T> {
@@ -90,14 +89,18 @@ export interface StreamMessage<T> {
 
 // --- Client ---
 
-class TopiqClient<Topics extends TopicsMap> {
+export class TopiqClient<Topics extends TopicsMap> {
   private readonly client: MqttClientType
   private readonly topicsMap = new Map<
     string,
-    Topic<string, unknown, Record<string, string>>
+    Topic<string, unknown, ZodType>
   >()
   private readonly handlers = new Set<RawMessageHandler>()
   private readonly subscriptions = new Set<string>()
+
+  get isConnected(): boolean {
+    return this.client.connected
+  }
 
   protected constructor(private readonly config: TopiqConfig<Topics>) {
     this.client = this.connect()
@@ -138,7 +141,7 @@ class TopiqClient<Topics extends TopicsMap> {
     callback: (
       data: InferPayload<TopicByPattern<Topics, Pattern>>,
       context: {
-        topic: string
+        topic: ConcreteTopic<Pattern>
         params: InferParams<TopicByPattern<Topics, Pattern>>
       }
     ) => void
@@ -150,7 +153,7 @@ class TopiqClient<Topics extends TopicsMap> {
       try {
         const data = this.parse(resolved, incomingTopic, payload)
         callback(data as InferPayload<TopicByPattern<Topics, Pattern>>, {
-          topic: incomingTopic,
+          topic: incomingTopic as ConcreteTopic<Pattern>,
           params: resolved.extractParams(incomingTopic) as InferParams<
             TopicByPattern<Topics, Pattern>
           >,
@@ -173,14 +176,13 @@ class TopiqClient<Topics extends TopicsMap> {
    * @param data - The payload to publish — must match the topic's schema type
    *
    * @example
-   * client.emit(deviceStatus, { online: true, battery: 87 })
+   * client.emit(deviceStatus.build({ deviceId: "abc" }), { online: true, battery: 87 })
    */
   emit<Pattern extends PatternOf<Topics>>(
-    topic: TopicByPattern<Topics, Pattern> | Pattern,
+    topic: ConcreteTopic<Pattern>,
     data: InferPayload<TopicByPattern<Topics, Pattern>>
   ): void {
-    const resolved = this.resolve(topic)
-    this.client.publish(resolved.topic, JSON.stringify(data))
+    this.client.publish(topic, JSON.stringify(data))
   }
 
   /**
@@ -275,15 +277,15 @@ class TopiqClient<Topics extends TopicsMap> {
 
   // --- Internals ---
 
-  private resolve<
-    Subject extends Topic<string, unknown, Record<string, string>>,
-  >(input: Subject | string): Subject {
+  private resolve<Subject extends Topic<string, unknown, ZodType>>(
+    input: Subject | PatternOf<Topics>
+  ): Subject {
     if (typeof input !== "string") {
       return input
     }
     const found = this.topicsMap.get(input)
     if (!found) {
-      throw new Error(`Topic "${input}" not registered`)
+      throw new UnregisteredTopicError(input)
     }
     return found as Subject
   }
@@ -340,14 +342,6 @@ class TopiqClient<Topics extends TopicsMap> {
   }
 
   private listen() {
-    this.client.on("connect", () => console.log("[topiq] connected"))
-    this.client.on("disconnect", (err) =>
-      console.error("[topiq] disconnected", err)
-    )
-    this.client.on("reconnect", () => console.log("[topiq] reconnecting..."))
-    this.client.on("error", (err) => console.error("[topiq] error", err))
-    this.client.on("close", () => console.log("[topiq] connection closed"))
-    this.client.on("offline", () => console.log("[topiq] offline"))
     this.client.on("message", (topic, payload) => {
       for (const handler of this.handlers) {
         handler(topic, payload)
@@ -377,6 +371,31 @@ class TopiqClient<Topics extends TopicsMap> {
     } catch {
       return payload.toString()
     }
+  }
+
+  ready(timeout = 1000): Promise<void> {
+    if (this.isConnected) {
+      return Promise.resolve()
+    }
+
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.client.removeListener("connect", onConnect)
+        reject(
+          new Error(
+            `Timeout: Failed to connect to MQTT broker after ${timeout}ms`
+          )
+        )
+      }, timeout)
+
+      const onConnect = () => {
+        clearTimeout(timer)
+        this.client.removeListener("connect", onConnect)
+        resolve()
+      }
+
+      this.client.once("connect", onConnect)
+    })
   }
 }
 

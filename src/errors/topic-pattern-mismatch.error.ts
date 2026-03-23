@@ -1,15 +1,10 @@
-import type { TopicPattern } from ".."
-
-/**
- * Thrown when an incoming MQTT topic doesn't match the pattern.
- */
+/** Thrown when an incoming MQTT topic does not match the registered pattern. */
 export class TopicPatternMismatchError extends Error {
   constructor(
-    /** The topic that didn't match the pattern */
     readonly topic: string,
-    /** The pattern that the topic didn't match */
-    readonly pattern: TopicPattern<string>
+    readonly pattern: string
   ) {
-    super(`Topic "${topic}" does not match the pattern "${pattern}"`)
+    super(`Topic "${topic}" does not match pattern "${pattern}"`)
+    this.name = "TopicPatternMismatchError"
   }
 }
