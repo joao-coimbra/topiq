@@ -203,3 +203,28 @@ bun run release --tag next
 |-----|-----|
 | `latest` | stable releases |
 | `next` | RC / pre-release |
+
+## Project Architecture
+
+```
+src/
+├── topiq.ts                              # TopiqClient class + topiq() factory
+├── topic.ts                              # Topic<Pattern, Output, Params> class + topic() factory
+├── types/
+│   ├── topic-pattern.ts                  # TopicPattern<T> — Express path → MQTT wildcard (type-level, tail-recursive)
+│   └── extract-params.ts                 # ExtractParamNames<T> | ExtractParams<T> (type-level)
+└── errors/
+    ├── topic-validation.error.ts         # Thrown by parse() when Zod validation fails
+    └── topic-pattern-mismatch.error.ts   # Thrown by extractParams() when topic doesn't match pattern
+```
+
+Test infrastructure lives in `test/factories/` (not co-located with source).
+
+## Key API Conventions
+
+- `Topic<Pattern, Output, Params>` — `Pattern` is the MQTT wildcard string (no leading slash), `Output` is the inferred Zod type, `Params` is the extracted params map
+- `topic()` return type uses inline `{ [K in ExtractParamNames<Path>]: string }` (not the `ExtractParams<T>` alias) — forces TypeScript to display concrete object types in IDE tooltips
+- `TopicPattern<T>` strips leading `/` at the type level via an internal `BuildTopicPattern` helper
+- `client.on()` callback: `(data, { topic, params }) => void` — second argument is a context object
+- `parse()` in `TopiqClient` throws `TopicPatternMismatchError` or `TopicValidationError` — never returns `null`
+- Error classes are exported from `topiq` (main) and `topiq/errors` (sub-path)
