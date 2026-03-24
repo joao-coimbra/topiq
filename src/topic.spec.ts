@@ -3,69 +3,89 @@ import { z } from "zod"
 import { MissingParamError, TopicPatternMismatchError } from "./errors"
 import { topic } from "./topic"
 
-const statusSchema = z.object({ online: z.boolean(), battery: z.number() })
+const schema = z.object({ online: z.boolean(), battery: z.number() })
 
 describe("topic()", () => {
-  it("should store the given schema", () => {
-    const t = topic("/devices/:deviceId/status", statusSchema)
-    expect(t.schema).toBe(statusSchema)
+  it("should store the given schema on the instance", () => {
+    const t = topic("/devices/:deviceId/status", schema)
+
+    expect(t.schema).toBe(schema)
   })
 
-  describe(".topic", () => {
+  describe(".topic — MQTT wildcard pattern", () => {
     it("should strip the leading slash", () => {
-      const t = topic("/events", statusSchema)
+      const t = topic("/events", schema)
+
       expect(t.topic).toBe("events")
     })
 
-    it("should replace a single param with +", () => {
-      const t = topic("/devices/:deviceId/status", statusSchema)
+    it("should replace a single param segment with +", () => {
+      const t = topic("/devices/:deviceId/status", schema)
+
       expect(t.topic).toBe("devices/+/status")
     })
 
-    it("should replace multiple params with +", () => {
-      const t = topic("/ward/:wardId/bed/:bedId/event", statusSchema)
+    it("should replace multiple param segments with +", () => {
+      const t = topic("/ward/:wardId/bed/:bedId/event", schema)
+
       expect(t.topic).toBe("ward/+/bed/+/event")
     })
 
-    it("should replace consecutive params with +", () => {
-      const t = topic("/:wardId/:bedId", statusSchema)
+    it("should replace consecutive param segments with +", () => {
+      const t = topic("/:wardId/:bedId", schema)
+
       expect(t.topic).toBe("+/+")
     })
 
-    it("should handle a trailing param", () => {
-      const t = topic("/devices/:deviceId", statusSchema)
+    it("should replace a trailing param segment with +", () => {
+      const t = topic("/devices/:deviceId", schema)
+
       expect(t.topic).toBe("devices/+")
     })
 
     it("should return the path unchanged when there are no params", () => {
-      const t = topic("/static/topic", statusSchema)
+      const t = topic("/static/topic", schema)
+
       expect(t.topic).toBe("static/topic")
     })
   })
 
   describe(".build()", () => {
     it("should substitute a single param", () => {
-      const t = topic("/devices/:deviceId/status", statusSchema)
-      expect(t.build({ deviceId: "abc-123" })).toBe("devices/abc-123/status")
+      const t = topic("/devices/:deviceId/status", schema)
+
+      const result = t.build({ deviceId: "abc-123" })
+
+      expect(result).toBe("devices/abc-123/status")
     })
 
     it("should substitute multiple params", () => {
-      const t = topic("/ward/:wardId/bed/:bedId/event", statusSchema)
-      expect(t.build({ wardId: "42", bedId: "7" })).toBe("ward/42/bed/7/event")
+      const t = topic("/ward/:wardId/bed/:bedId/event", schema)
+
+      const result = t.build({ wardId: "42", bedId: "7" })
+
+      expect(result).toBe("ward/42/bed/7/event")
     })
 
     it("should substitute consecutive params", () => {
-      const t = topic("/:wardId/:bedId", statusSchema)
-      expect(t.build({ wardId: "w1", bedId: "b2" })).toBe("w1/b2")
+      const t = topic("/:wardId/:bedId", schema)
+
+      const result = t.build({ wardId: "w1", bedId: "b2" })
+
+      expect(result).toBe("w1/b2")
     })
 
     it("should return the topic unchanged when there are no params", () => {
-      const t = topic("/events", statusSchema)
-      expect(t.build()).toBe("events")
+      const t = topic("/events", schema)
+
+      const result = t.build()
+
+      expect(result).toBe("events")
     })
 
-    it("should throw when a required param is missing", () => {
-      const t = topic("/devices/:deviceId/status", statusSchema)
+    it("should throw MissingParamError when a required param is absent", () => {
+      const t = topic("/devices/:deviceId/status", schema)
+
       expect(() => t.build({} as { deviceId: string })).toThrow(
         MissingParamError
       )
@@ -74,53 +94,43 @@ describe("topic()", () => {
 
   describe(".extractParams()", () => {
     it("should extract a single param from a concrete MQTT topic", () => {
-      const t = topic("/devices/:deviceId/status", statusSchema)
-      expect(t.extractParams("devices/abc-123/status")).toEqual({
-        deviceId: "abc-123",
-      })
+      const t = topic("/devices/:deviceId/status", schema)
+
+      const params = t.extractParams("devices/abc-123/status")
+
+      expect(params).toEqual({ deviceId: "abc-123" })
     })
 
     it("should extract multiple params", () => {
-      const t = topic("/ward/:wardId/bed/:bedId/event", statusSchema)
-      expect(t.extractParams("ward/42/bed/7/event")).toEqual({
-        wardId: "42",
-        bedId: "7",
-      })
+      const t = topic("/ward/:wardId/bed/:bedId/event", schema)
+
+      const params = t.extractParams("ward/42/bed/7/event")
+
+      expect(params).toEqual({ wardId: "42", bedId: "7" })
     })
 
     it("should extract consecutive params", () => {
-      const t = topic("/:wardId/:bedId", statusSchema)
-      expect(t.extractParams("ward42/bed7")).toEqual({
-        wardId: "ward42",
-        bedId: "bed7",
-      })
-    })
+      const t = topic("/:wardId/:bedId", schema)
 
-    it("should throw TopicPatternMismatchError when the topic does not match the pattern", () => {
-      const t = topic("/devices/:deviceId/status", statusSchema)
-      expect(() => t.extractParams("devices/abc/telemetry")).toThrow(
-        TopicPatternMismatchError
-      )
+      const params = t.extractParams("ward42/bed7")
+
+      expect(params).toEqual({ wardId: "ward42", bedId: "bed7" })
     })
 
     it("should return an empty object for a topic with no params", () => {
-      const t = topic("/events", statusSchema)
-      expect(t.extractParams("events")).toEqual({})
-    })
-  })
+      const t = topic("/events", schema)
 
-  describe(".schema", () => {
-    it("should parse a valid payload", () => {
-      const t = topic("/devices/:deviceId/status", statusSchema)
-      expect(t.schema.parse({ online: true, battery: 80 })).toEqual({
-        online: true,
-        battery: 80,
-      })
+      const params = t.extractParams("events")
+
+      expect(params).toEqual({})
     })
 
-    it("should throw when the payload does not match the schema", () => {
-      const t = topic("/devices/:deviceId/status", statusSchema)
-      expect(() => t.schema.parse({ invalid: "data" })).toThrow()
+    it("should throw TopicPatternMismatchError when the incoming topic does not match the pattern", () => {
+      const t = topic("/devices/:deviceId/status", schema)
+
+      expect(() => t.extractParams("devices/abc/telemetry")).toThrow(
+        TopicPatternMismatchError
+      )
     })
   })
 })
