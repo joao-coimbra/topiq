@@ -56,7 +56,7 @@ client.on(deviceStatus, (data, { topic, params }) => {
 | **Path params** | `/devices/:deviceId/status` → automatically extracted as `{ deviceId: string }` |
 | **Async streaming** | Consume messages as an `AsyncIterable` with `AbortSignal` support |
 | **TLS support** | Pass `tls: true` for automatic MQTTS, or provide your own certificates |
-| **Dual factory API** | Pass a flat config or `{ client, options }` — both are fully typed |
+| **Dual factory API** | Pass a flat config or `{ client, topics }` — both are fully typed |
 
 ---
 
@@ -105,7 +105,7 @@ Or pass a single config object:
 ```ts
 const client = topiq({
   client: { url: 'mqtt://broker.example.com:1883' },
-  options: { topics: { deviceStatus, telemetry } },
+  topics: { deviceStatus, telemetry },
 })
 ```
 
