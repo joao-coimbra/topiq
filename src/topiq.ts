@@ -19,34 +19,38 @@ interface TLSConfig {
   cert: string
 }
 
-/** Connect to a broker using a full URL, e.g. `"mqtt://broker.example.com:1883"` */
-interface UrlConfig {
-  url: string
-}
-
-/** Connect to a broker by hostname and optional port/protocol */
-interface HostConfig {
-  host: string
-  /** Defaults to `1883`, or `8883` when `tls` is set */
-  port?: number
-  /** Defaults to `"mqtt"`, or `"mqtts"` when `tls` is set */
-  protocol?: string
-  /** Pass `true` to enable MQTT over TLS with default settings, or provide certificate material */
-  tls?: true | TLSConfig
-  username?: string
-  password?: string
-}
-
 /**
- * Connection configuration for the MQTT broker.
- * Provide either a `url` or a `host` (with optional `port` and `protocol`).
+ * Client configuration for the MQTT broker
+ * . Provide either a `url` or a `host` (with optional `port` and `protocol`).
+ * . Provide a `tls` object to enable TLS with certificate material.
+ * . Provide a `username` and `password` to authenticate with the broker.
+ * . Provide a `topics` map to register with the client.
+ * . Provide a `options` map to configure the client.
+ * . Provide a `client` object to configure the client.
+ * . Provide a `options` object to configure the client.
+ * . Provide a `client` object to configure the client.
  */
-type ClientConfig = (UrlConfig | HostConfig) & {
-  /** Pass `true` to enable MQTT over TLS with default settings, or provide certificate material */
-  tls?: true | TLSConfig
-  username?: string
-  password?: string
-}
+type ClientConfig =
+  | {
+      /** Broker hostname */
+      host: string
+      /** Defaults to `1883`, or `8883` when `tls` is set */
+      port?: number
+      /** Defaults to `"mqtt"`, or `"mqtts"` when `tls` is set */
+      protocol?: string
+      /** Pass `true` to enable MQTT over TLS with default settings, or provide certificate material */
+      tls?: true | TLSConfig
+      username?: string
+      password?: string
+    }
+  | {
+      /** Full broker URL, e.g. `"mqtt://broker.example.com:1883"` */
+      url: string
+      /** Pass `true` to enable MQTT over TLS with default settings, or provide certificate material */
+      tls?: true | TLSConfig
+      username?: string
+      password?: string
+    }
 
 type TopicsMap = Record<string, Topic<string, unknown, ZodType>>
 
@@ -55,10 +59,9 @@ interface TopiqOptions<Topics extends TopicsMap> {
   topics?: Topics
 }
 
-interface TopiqConfig<Topics extends TopicsMap> {
+type TopiqConfig<Topics extends TopicsMap> = {
   client: ClientConfig
-  options: TopiqOptions<Topics>
-}
+} & TopiqOptions<Topics>
 
 // --- Types ---
 
@@ -106,8 +109,10 @@ export class TopiqClient<Topics extends TopicsMap> {
     this.client = this.connect()
     this.listen()
 
-    for (const topic of Object.values(config.options.topics ?? {})) {
-      this.topicsMap.set(topic.topic, topic)
+    if (config.topics) {
+      for (const topic of Object.values(config.topics)) {
+        this.topicsMap.set(topic.topic, topic)
+      }
     }
   }
 
@@ -438,5 +443,5 @@ export function topiq<Topics extends TopicsMap>(
   if ("client" in clientOrConfig) {
     return TopiqClient.from(clientOrConfig)
   }
-  return TopiqClient.from({ client: clientOrConfig, options })
+  return TopiqClient.from({ client: clientOrConfig, ...options })
 }
