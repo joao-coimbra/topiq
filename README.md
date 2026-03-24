@@ -78,12 +78,12 @@ npm install topiq
 import { topic } from 'topiq'
 import { z } from 'zod'
 
-const deviceStatus = topic('/devices/:deviceId/status', z.object({
+const deviceStatus = topic('devices/:deviceId/status', z.object({
   online: z.boolean(),
   battery: z.number(),
 }))
 
-const telemetry = topic('/devices/:deviceId/telemetry', z.object({
+const telemetry = topic('devices/:deviceId/telemetry', z.object({
   temperature: z.number(),
   humidity: z.number(),
 }))
@@ -180,7 +180,7 @@ const client = topiq({
 Creates a typed topic definition.
 
 ```ts
-const deviceStatus = topic('/devices/:deviceId/status', z.object({
+const deviceStatus = topic('devices/:deviceId/status', z.object({
   online: z.boolean(),
 }))
 ```
