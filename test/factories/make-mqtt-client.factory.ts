@@ -5,12 +5,9 @@ export type FakeMqttClient = EventEmitter & {
   subscribe: ReturnType<typeof mock>
   publish: ReturnType<typeof mock>
   end: ReturnType<typeof mock>
+  connected: boolean
 }
 
-/**
- * Creates a fully isolated fake MQTT client and registers it as the mock
- * for the `mqtt` module. Safe to call inside `beforeEach`.
- */
 export function makeMqttClient(): {
   client: FakeMqttClient
   connectSpy: ReturnType<typeof mock>
@@ -19,6 +16,7 @@ export function makeMqttClient(): {
     subscribe: mock(),
     publish: mock(),
     end: mock(),
+    connected: false,
   }) as FakeMqttClient
 
   const connectSpy = mock(() => client)

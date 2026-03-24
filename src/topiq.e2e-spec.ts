@@ -1,72 +1,127 @@
-import {
-  afterEach,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  type Mock,
-  mock,
-} from "bun:test"
-import { waitFor } from "test/helpers/wait-for"
+import { afterAll, beforeAll, describe, expect, it, mock } from "bun:test"
+import { sleep } from "bun"
 import { z } from "zod"
+import { waitFor } from "../test/helpers/wait-for"
 import { topic } from "./topic"
-import { topiq } from "./topiq"
+import { type TopiqClient, topiq } from "./topiq"
 
-// biome-ignore lint/style/noNonNullAssertion: env already validated
-const MQTT_HOST = process.env.E2E_MQTT_HOST!
+const host = process.env.E2E_MQTT_HOST ?? "127.0.0.1"
 
-const topics = {
-  deviceStatus: topic(
-    "/devices/:deviceId/status",
-    z.object({
-      online: z.boolean(),
-      battery: z.number(),
-    })
-  ),
-}
-
-const client = topiq(
-  {
-    host: MQTT_HOST,
-  },
-  { topics }
+const temperature = topic(
+  "sensors/:sensorId/temperature",
+  z.object({ celsius: z.number() })
 )
 
-describe("Topiq", () => {
+type Client = TopiqClient<{ temperature: typeof temperature }>
+
+describe("topiq e2e", () => {
+  let client: Client
+
   beforeAll(async () => {
+    client = topiq({ host }, { topics: { temperature } })
     await client.ready()
   })
 
-  it("should connect to the MQTT broker", () => {
-    expect(client.isConnected).toBeTrue()
+  afterAll(() => {
+    client.disconnect()
   })
 
   describe("on()", () => {
-    let unsubscribe: () => void
-    let callback: Mock<(data: unknown, context: unknown) => void>
+    it("should receive a real message from the broker with data and context", async () => {
+      const callback = mock()
+      const off = client.on(temperature, callback)
 
-    beforeEach(() => {
-      callback = mock()
-      unsubscribe = client.on(topics.deviceStatus, callback)
-    })
-
-    afterEach(() => {
-      unsubscribe()
-    })
-
-    it("should subscribe to the MQTT pattern on the first call", async () => {
-      client.emit(topics.deviceStatus.build({ deviceId: "abc" }), {
-        online: true,
-        battery: 80,
-      })
+      client.emit(temperature.build({ sensorId: "s1" }), { celsius: 22 })
 
       await waitFor(() => {
-        expect(callback).toHaveBeenCalledTimes(1)
         expect(callback).toHaveBeenCalledWith(
-          { online: true, battery: 80 },
-          { topic: "devices/abc/status", params: { deviceId: "abc" } }
+          { celsius: 22 },
+          { topic: "sensors/s1/temperature", params: { sensorId: "s1" } }
         )
+      })
+
+      off()
+    })
+
+    it("should stop receiving after unsubscribe", async () => {
+      const callback = mock()
+      const off = client.on(temperature, callback)
+      off()
+
+      client.emit(temperature.build({ sensorId: "s2" }), { celsius: 5 })
+
+      await sleep(150)
+
+      expect(callback).not.toHaveBeenCalled()
+    })
+  })
+
+  describe("emit()", () => {
+    it("should publish a payload that is delivered over the real broker", async () => {
+      const callback = mock()
+      const off = client.on(temperature, callback)
+
+      client.emit(temperature.build({ sensorId: "emit-test" }), { celsius: 37 })
+
+      await waitFor(() => {
+        expect(callback).toHaveBeenCalledWith(
+          { celsius: 37 },
+          expect.objectContaining({ topic: "sensors/emit-test/temperature" })
+        )
+      })
+
+      off()
+    })
+  })
+
+  describe("stream()", () => {
+    it("should yield a real message arriving from the broker", async () => {
+      const controller = new AbortController()
+      const iterator = client
+        .stream(temperature, controller.signal)
+        [Symbol.asyncIterator]()
+
+      const nextPromise = iterator.next()
+
+      await sleep(50)
+      client.emit(temperature.build({ sensorId: "stream-1" }), { celsius: 18 })
+
+      const result = await nextPromise
+
+      expect(result.done).toBe(false)
+      expect(result.value).toEqual({
+        topic: "sensors/stream-1/temperature",
+        data: { celsius: 18 },
+      })
+
+      controller.abort()
+    })
+
+    it("should terminate when AbortSignal is aborted", async () => {
+      const controller = new AbortController()
+      const iterator = client
+        .stream(temperature, controller.signal)
+        [Symbol.asyncIterator]()
+
+      const nextPromise = iterator.next()
+      controller.abort()
+
+      const result = await nextPromise
+      expect(result.done).toBe(true)
+    })
+  })
+
+  describe("disconnect()", () => {
+    it("should mark the client as disconnected", async () => {
+      const disposable = topiq({ host }, { topics: { temperature } })
+      await disposable.ready()
+
+      expect(disposable.isConnected).toBe(true)
+
+      disposable.disconnect()
+
+      await waitFor(() => {
+        expect(disposable.isConnected).toBe(false)
       })
     })
   })

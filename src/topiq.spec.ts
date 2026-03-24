@@ -4,9 +4,8 @@ import {
   type FakeMqttClient,
   makeMqttClient,
 } from "../test/factories/make-mqtt-client.factory"
-
 import { topic } from "./topic"
-import { topiq } from "./topiq"
+import { type TopiqClient, topiq } from "./topiq"
 
 const status = topic(
   "/devices/:deviceId/status",
@@ -32,7 +31,7 @@ describe("topiq()", () => {
   })
 
   describe("connection", () => {
-    it("should call mqtt.connect with the correct URL for host config", () => {
+    it("should call mqtt.connect with the correct URL for a host config", () => {
       topiq({ host: "broker.example.com" }, { topics: { status } })
 
       expect(fakeMqtt.connectSpy).toHaveBeenCalledWith(
@@ -41,7 +40,7 @@ describe("topiq()", () => {
       )
     })
 
-    it("should use mqtts:// scheme and port 8883 when tls: true", () => {
+    it("should use mqtts:// and port 8883 when tls: true", () => {
       topiq({ host: "broker.example.com", tls: true }, { topics: { status } })
 
       expect(fakeMqtt.connectSpy).toHaveBeenCalledWith(
@@ -51,36 +50,84 @@ describe("topiq()", () => {
     })
   })
 
-  describe("on()", () => {
-    it("should subscribe to the MQTT pattern on the first call", () => {
+  describe("isConnected", () => {
+    it("should return false when the underlying client is not connected", () => {
       const client = topiq(
         { host: "broker.example.com" },
         { topics: { status } }
       )
 
+      expect(client.isConnected).toBe(false)
+    })
+
+    it("should return true when the underlying client is connected", () => {
+      const client = topiq(
+        { host: "broker.example.com" },
+        { topics: { status } }
+      )
+      fakeMqtt.client.connected = true
+
+      expect(client.isConnected).toBe(true)
+    })
+  })
+
+  describe("ready()", () => {
+    it("should resolve immediately when already connected", async () => {
+      fakeMqtt.client.connected = true
+      const client = topiq(
+        { host: "broker.example.com" },
+        { topics: { status } }
+      )
+
+      await expect(client.ready()).resolves.toBeUndefined()
+    })
+
+    it("should resolve when the connect event fires", async () => {
+      const client = topiq(
+        { host: "broker.example.com" },
+        { topics: { status } }
+      )
+
+      const readyPromise = client.ready()
+      fakeMqtt.client.emit("connect")
+
+      await expect(readyPromise).resolves.toBeUndefined()
+    })
+
+    it("should reject after the timeout if no connection is established", async () => {
+      const client = topiq(
+        { host: "broker.example.com" },
+        { topics: { status } }
+      )
+
+      await expect(client.ready(1)).rejects.toThrow(
+        "Timeout: Failed to connect to MQTT broker after 1ms"
+      )
+    })
+  })
+
+  describe("on()", () => {
+    let client: TopiqClient<{ status: typeof status }>
+
+    beforeEach(() => {
+      client = topiq({ host: "broker.example.com" }, { topics: { status } })
+    })
+
+    it("should subscribe to the MQTT pattern on the first call", () => {
       client.on(status, mock())
 
       expect(fakeMqtt.client.subscribe).toHaveBeenCalledTimes(1)
       expect(fakeMqtt.client.subscribe).toHaveBeenCalledWith("devices/+/status")
     })
 
-    it("should not subscribe again on subsequent calls for the same pattern", () => {
-      const client = topiq(
-        { host: "broker.example.com" },
-        { topics: { status } }
-      )
-
+    it("should not resubscribe on subsequent calls for the same pattern", () => {
       client.on(status, mock())
       client.on(status, mock())
 
       expect(fakeMqtt.client.subscribe).toHaveBeenCalledTimes(1)
     })
 
-    it("should invoke the callback with data and context { topic, params }", () => {
-      const client = topiq(
-        { host: "broker.example.com" },
-        { topics: { status } }
-      )
+    it("should invoke the callback with validated data and context", () => {
       const callback = mock()
       client.on(status, callback)
 
@@ -96,10 +143,6 @@ describe("topiq()", () => {
     })
 
     it("should stop invoking the callback after the returned unsubscribe fn is called", () => {
-      const client = topiq(
-        { host: "broker.example.com" },
-        { topics: { status } }
-      )
       const callback = mock()
       const off = client.on(status, callback)
 
@@ -111,10 +154,55 @@ describe("topiq()", () => {
 
       expect(callback).not.toHaveBeenCalled()
     })
+
+    it("should silently skip messages that fail Zod validation", () => {
+      const callback = mock()
+      client.on(status, callback)
+
+      emitMessage(fakeMqtt.client, "devices/abc/status", { invalid: "data" })
+
+      expect(callback).not.toHaveBeenCalled()
+    })
+
+    it("should silently skip messages that do not match the topic pattern", () => {
+      const callback = mock()
+      client.on(status, callback)
+
+      emitMessage(fakeMqtt.client, "devices/abc/telemetry", { temp: 25 })
+
+      expect(callback).not.toHaveBeenCalled()
+    })
+
+    it("should match + to exactly one path segment and extract the param", () => {
+      const callback = mock()
+      client.on(status, callback)
+
+      emitMessage(fakeMqtt.client, "devices/sensor-42/status", {
+        online: true,
+        battery: 75,
+      })
+
+      expect(callback).toHaveBeenCalledWith(
+        { online: true, battery: 75 },
+        {
+          topic: "devices/sensor-42/status",
+          params: { deviceId: "sensor-42" },
+        }
+      )
+    })
+
+    it("should silently skip messages whose topic spans more segments than the pattern", () => {
+      const callback = mock()
+      client.on(status, callback)
+
+      emitMessage(fakeMqtt.client, "devices/a/b/status", { temp: 25 })
+
+      expect(callback).not.toHaveBeenCalled()
+    })
   })
 
   describe("emit()", () => {
-    it("should call publish with the concrete topic string and JSON-serialized payload", () => {
+    it("should publish the JSON-serialized payload to the concrete topic string", () => {
       const client = topiq(
         { host: "broker.example.com" },
         { topics: { status } }
@@ -133,11 +221,13 @@ describe("topiq()", () => {
   })
 
   describe("stream()", () => {
+    let client: TopiqClient<{ status: typeof status }>
+
+    beforeEach(() => {
+      client = topiq({ host: "broker.example.com" }, { topics: { status } })
+    })
+
     it("should yield arriving messages as an async iterable", async () => {
-      const client = topiq(
-        { host: "broker.example.com" },
-        { topics: { status } }
-      )
       const iterator = client.stream(status)[Symbol.asyncIterator]()
 
       emitMessage(fakeMqtt.client, "devices/abc/status", {
@@ -157,10 +247,6 @@ describe("topiq()", () => {
     })
 
     it("should buffer messages when the iterator is not yet awaiting", async () => {
-      const client = topiq(
-        { host: "broker.example.com" },
-        { topics: { status } }
-      )
       const iterator = client.stream(status)[Symbol.asyncIterator]()
 
       emitMessage(fakeMqtt.client, "devices/abc/status", {
@@ -182,10 +268,6 @@ describe("topiq()", () => {
     })
 
     it("should terminate iteration when the AbortSignal is aborted", async () => {
-      const client = topiq(
-        { host: "broker.example.com" },
-        { topics: { status } }
-      )
       const controller = new AbortController()
       const iterator = client
         .stream(status, controller.signal)
@@ -195,94 +277,11 @@ describe("topiq()", () => {
       controller.abort()
 
       const result = await nextPromise
+
       expect(result.done).toBe(true)
     })
-  })
 
-  describe("disconnect()", () => {
-    it("should call client.end()", () => {
-      const client = topiq(
-        { host: "broker.example.com" },
-        { topics: { status } }
-      )
-
-      client.disconnect()
-
-      expect(fakeMqtt.client.end).toHaveBeenCalledTimes(1)
-    })
-  })
-
-  describe("wildcard matching", () => {
-    it("should match + to exactly one path segment and extract the param", () => {
-      const client = topiq(
-        { host: "broker.example.com" },
-        { topics: { status } }
-      )
-      const callback = mock()
-      client.on(status, callback)
-
-      emitMessage(fakeMqtt.client, "devices/sensor-42/status", {
-        online: true,
-        battery: 75,
-      })
-
-      expect(callback).toHaveBeenCalledWith(
-        { online: true, battery: 75 },
-        {
-          topic: "devices/sensor-42/status",
-          params: { deviceId: "sensor-42" },
-        }
-      )
-    })
-
-    it("should silently skip messages whose topic spans multiple wildcard levels", () => {
-      const client = topiq(
-        { host: "broker.example.com" },
-        { topics: { status } }
-      )
-      const callback = mock()
-      client.on(status, callback)
-
-      emitMessage(fakeMqtt.client, "devices/a/b/status", { temp: 25 })
-
-      expect(callback).not.toHaveBeenCalled()
-    })
-  })
-
-  describe("invalid payload", () => {
-    it("should silently skip messages that fail zod validation", () => {
-      const client = topiq(
-        { host: "broker.example.com" },
-        { topics: { status } }
-      )
-      const callback = mock()
-      client.on(status, callback)
-
-      emitMessage(fakeMqtt.client, "devices/abc/status", { invalid: "data" })
-
-      expect(callback).not.toHaveBeenCalled()
-    })
-
-    it("should silently skip messages that do not match the topic pattern", () => {
-      const client = topiq(
-        { host: "broker.example.com" },
-        { topics: { status } }
-      )
-      const callback = mock()
-      client.on(status, callback)
-
-      emitMessage(fakeMqtt.client, "devices/abc/telemetry", { temp: 25 })
-
-      expect(callback).not.toHaveBeenCalled()
-    })
-  })
-
-  describe("stream() error handling", () => {
-    it("should silently skip messages that fail zod validation", async () => {
-      const client = topiq(
-        { host: "broker.example.com" },
-        { topics: { status } }
-      )
+    it("should silently skip messages that fail Zod validation", async () => {
       const controller = new AbortController()
       const iterator = client
         .stream(status, controller.signal)
@@ -295,15 +294,13 @@ describe("topiq()", () => {
       })
 
       const result = await iterator.next()
+
       expect(result.value?.data).toEqual({ online: true, battery: 99 })
+
       await iterator.return?.()
     })
 
     it("should silently skip messages that do not match the topic pattern", async () => {
-      const client = topiq(
-        { host: "broker.example.com" },
-        { topics: { status } }
-      )
       const controller = new AbortController()
       const iterator = client
         .stream(status, controller.signal)
@@ -316,8 +313,23 @@ describe("topiq()", () => {
       })
 
       const result = await iterator.next()
+
       expect(result.value?.data).toEqual({ online: false, battery: 10 })
+
       await iterator.return?.()
+    })
+  })
+
+  describe("disconnect()", () => {
+    it("should call end() on the underlying MQTT client", () => {
+      const client = topiq(
+        { host: "broker.example.com" },
+        { topics: { status } }
+      )
+
+      client.disconnect()
+
+      expect(fakeMqtt.client.end).toHaveBeenCalledTimes(1)
     })
   })
 })
