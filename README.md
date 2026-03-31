@@ -70,6 +70,18 @@ npm install topiq
 
 ---
 
+## Agent Skill
+
+An agent skill is available to give AI coding assistants full knowledge of the topiq API — topics, client config, pub/sub, streaming, errors, and types.
+
+```bash
+bun x skills add joao-coimbra/topiq
+```
+
+Once installed, your AI assistant will automatically apply topiq patterns when working in a project that uses it.
+
+---
+
 ## Usage
 
 ### Define your topics
