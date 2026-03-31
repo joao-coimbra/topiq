@@ -17,7 +17,7 @@ Define topics once with a Zod schema — get fully typed publish, subscribe, and
 
 <br />
 
-[Quick Start](#install) · [Why Topiq](#why-topiq) · [Usage](#usage) · [API](#api)
+[Quick Start](#install) · [Why Topiq](#why-topiq) · [Usage](#usage) · [API](#api) · [Contributing](#contributing)
 
 <br />
 
@@ -151,7 +151,7 @@ for await (const { data, topic } of client.stream(telemetry, controller.signal))
   console.log(topic) // e.g. "devices/abc-123/telemetry"
 }
 
-controller.abort() // stop the stream
+// call controller.abort() from outside this loop to stop the stream early
 ```
 
 ### TLS
@@ -198,16 +198,27 @@ const deviceStatus = topic('devices/:deviceId/status', z.object({
 
 Creates a `TopiqClient`.
 
-**Client config:**
+**Client config — provide either `url` or `host`, not both:**
 
-| Field | Type | Description |
-|---|---|---|
-| `url` | `string` | Full broker URL, e.g. `"mqtt://broker.example.com:1883"` |
-| `host` | `string` | Broker hostname |
-| `port` | `number` | Default: `1883`, or `8883` with TLS |
-| `tls` | `true \| TLSConfig` | Enable TLS or provide certificate material |
-| `username` | `string` | Auth username |
-| `password` | `string` | Auth password |
+By URL:
+
+| Field | Type | Required | Example |
+|---|---|---|---|
+| `url` | `string` | ✓ | `"mqtt://broker.example.com:1883"` |
+| `tls` | `true \| TLSConfig` | | `true` |
+| `username` | `string` | | |
+| `password` | `string` | | |
+
+By host:
+
+| Field | Type | Required | Example |
+|---|---|---|---|
+| `host` | `string` | ✓ | `"broker.example.com"` |
+| `port` | `number` | | `1883` |
+| `protocol` | `string` | | `"mqtt"`, `"mqtts"` |
+| `tls` | `true \| TLSConfig` | | `true` |
+| `username` | `string` | | |
+| `password` | `string` | | |
 
 ---
 
@@ -232,7 +243,7 @@ import {
   TopicPatternMismatchError,
   TopicValidationError,
   UnregisteredTopicError,
-} from 'topiq'
+} from 'topiq/errors'
 ```
 
 | Error | Description |
@@ -260,17 +271,56 @@ src/
     └── unregistered-topic.error.ts
 ```
 
+Test infrastructure lives in `test/factories/` and `test/helpers/` — not co-located with source.
+
 ---
 
 ## Development
 
-Requirements: **Bun >= 1.0**
+**Requirements:** Bun >= 1.0, Docker (for E2E tests)
 
 ```bash
 bun install          # install dependencies
 bun test             # run unit tests
 bun x ultracite fix  # lint + format
 ```
+
+### Testing
+
+```bash
+bun test             # unit tests (no external dependencies)
+bun run test:e2e     # e2e tests — spins up a Mosquitto broker via Docker
+```
+
+Unit tests live alongside source as `*.spec.ts`. E2E tests are `*.e2e-spec.ts` and run against a real Mosquitto 2 broker managed by Docker Compose.
+
+### CI
+
+Every pull request runs three parallel jobs via GitHub Actions:
+
+| Job | What it checks |
+|---|---|
+| `lint` | Biome via Ultracite (`bun x ultracite check`) |
+| `test` | Unit tests (`bun test`) |
+| `e2e` | Integration tests against a real MQTT broker |
+
+Releases are published to npm automatically when a `v*.*.*` tag is pushed, using [OIDC Trusted Publisher](https://docs.npmjs.com/generating-provenance-statements) — no long-lived token stored in secrets.
+
+---
+
+## Contributing
+
+Bug reports and feature requests are welcome via [GitHub Issues](https://github.com/joao-coimbra/topiq/issues). For significant features, open a [Discussion](https://github.com/joao-coimbra/topiq/discussions) first.
+
+```bash
+bun install          # setup
+bun test             # make sure everything passes
+bun x ultracite fix  # format before committing
+```
+
+Commits follow [Conventional Commits](https://www.conventionalcommits.org/) (`feat:`, `fix:`, `chore:`, etc.). Pull requests are squash-merged.
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for the full guide and [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md) for community standards.
 
 ---
 
