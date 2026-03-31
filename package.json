@@ -5,7 +5,8 @@
   "type": "module",
   "private": false,
   "files": [
-    "dist"
+    "dist",
+    "README.md"
   ],
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
