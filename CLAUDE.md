@@ -108,6 +108,7 @@ For more information, read the Bun API docs in `node_modules/bun-types/docs/**.m
 ## Merge Procedure
 
 - Always merge pull requests using **Squash and Merge** (`--squash`)
+- Never use `--auto` — auto-merge is disabled on this repo; wait for CI then merge manually
 - Never `--delete-branch` — the repo auto-deletes merged branches
 - Always sync main after merge
 
@@ -115,6 +116,12 @@ For more information, read the Bun API docs in `node_modules/bun-types/docs/**.m
 gh pr merge <number> --squash
 git checkout main && git pull
 ```
+
+### Tag Gotchas
+
+- Re-pushing a tag triggers both `publish.yml` (npm) and `release.yml` (GitHub Release draft) — avoid unless intentional
+- To update a GitHub Release body without re-triggering workflows: `gh release edit <tag> --notes "..."`
+- The CI runner's npm config lives at `NPM_CONFIG_USERCONFIG` (`/home/runner/work/_temp/.npmrc`), not `~/.npmrc`
 
 ### Branch Full Flow
 
@@ -130,6 +137,7 @@ git checkout main && git pull
 ## Release Procedure
 
 - Never `git push --tags` — pushes all local tags including unintended ones
+- npm is published via GitHub Actions using OIDC Trusted Publisher — do NOT use `registry-url` in `actions/setup-node` (it injects `_authToken` which blocks OIDC); use `publishConfig` in `package.json` and `npm install -g npm@latest` before publishing
 - Never create git tags for RC versions — tag only stable releases
 - Always use annotated tags (`-a`) — the Release GA reads the message as the GitHub Release body
 - GA does **not** publish to npm — publish locally first, then tag
