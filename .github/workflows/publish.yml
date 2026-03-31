@@ -22,18 +22,15 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Build
-        run: bun run build
-
       - uses: actions/setup-node@v4
         with:
           node-version: '22.14'
-          registry-url: 'https://registry.npmjs.org'
 
-      - name: Prepare npm for OIDC
-        run: |
-          npm install -g npm@latest
-          sed -i '/registry.npmjs.org\/:_authToken/d' ~/.npmrc
+      - name: Update npm to support OIDC trusted publishing
+        run: npm install -g npm@latest
+
+      - name: Build
+        run: bun run build
 
       - name: Publish to NPM
-        run: npm publish --provenance --access public
+        run: npm publish --provenance
