@@ -30,7 +30,10 @@ jobs:
           node-version: '22.14'
           registry-url: 'https://registry.npmjs.org'
 
+      - name: Prepare npm for OIDC
+        run: |
+          npm install -g npm@latest
+          sed -i '/registry.npmjs.org\/:_authToken/d' ~/.npmrc
+
       - name: Publish to NPM
         run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ""
