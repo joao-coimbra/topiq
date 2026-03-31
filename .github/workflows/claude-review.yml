@@ -1,0 +1,30 @@
+name: Claude Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+  id-token: write
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          direct_prompt: |
+            Review the changes in this PR for the `topiq` TypeScript MQTT client library.
+
+            Focus only on real issues and relevant suggestions — no descriptions of what the code does.
+
+            Check for:
+            - Type safety: incorrect generics, unsafe casts, missing constraints, `any` leakage
+            - API consistency: `on`, `emit`, `stream`, wildcard topics, `AbortSignal` lifecycle
+            - MQTT edge cases: wildcard matching correctness, topic validation, retained/QoS handling
+            - Test quality: missing edge cases, weak assertions, untested error paths
+
+            Use `gh pr comment` for general feedback. Use inline comments for specific line-level issues.
