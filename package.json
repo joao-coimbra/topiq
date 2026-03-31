@@ -47,6 +47,10 @@
   "bugs": {
     "url": "https://github.com/joao-coimbra/topiq/issues"
   },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
+  },
   "scripts": {
     "build": "bunup",
     "dev": "bunup --watch",
