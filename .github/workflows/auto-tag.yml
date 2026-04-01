@@ -1,0 +1,61 @@
+name: Auto Tag Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'package.json'
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check version bump
+        id: check
+        run: |
+          NEW=$(jq -r '.version' package.json)
+          PREV=$(git show HEAD~1:package.json 2>/dev/null | jq -r '.version' || echo "")
+          echo "version=$NEW" >> "$GITHUB_OUTPUT"
+
+          if [ "$NEW" = "$PREV" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Version unchanged — skipping."
+          elif echo "$NEW" | grep -qE '\-(rc|alpha|beta|next)'; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Pre-release $NEW — skipping tag."
+          elif git rev-parse "refs/tags/v$NEW" >/dev/null 2>&1; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Tag v$NEW already exists — skipping."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Generate tag message
+        id: notes
+        if: steps.check.outputs.skip == 'false'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          VERSION: ${{ steps.check.outputs.version }}
+        run: bash .github/scripts/generate-tag-message.sh
+
+      - name: Create and push annotated tag
+        if: steps.check.outputs.skip == 'false'
+        env:
+          VERSION: ${{ steps.check.outputs.version }}
+          TAG_MESSAGE: ${{ steps.notes.outputs.message }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if [ -n "$TAG_MESSAGE" ]; then
+            echo "$TAG_MESSAGE" > /tmp/tag-message.txt
+            git tag -a "v$VERSION" -F /tmp/tag-message.txt
+          else
+            git tag -a "v$VERSION" -m " "
+          fi
+          git push origin "v$VERSION"
