@@ -185,6 +185,12 @@ bun run release --tag next
 | `latest` | stable releases |
 | `next` | RC / pre-release |
 
+### Claude Review Workflow
+
+`claude-review.yml` has 3 jobs: `wait-for-ci` (polls CI up to 10 min), `notify-failure` (posts PR comment on CI failure/timeout), `review` (runs Claude after CI passes).
+- Do NOT change the trigger to `workflow_run` — `track_progress` breaks in that mode (`AutomationContext` has no `entityNumber`)
+- Test the pre-commit hook with `sh .husky/pre-commit`, not `bun x husky`
+
 ## Project Architecture
 
 ```

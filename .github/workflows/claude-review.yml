@@ -7,8 +7,83 @@ on:
       - 'src/**'
 
 jobs:
-  review:
+  wait-for-ci:
     if: ${{ !contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.pull_request.author_association) }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      conclusion: ${{ steps.poll.outputs.conclusion }}
+      run-id: ${{ steps.poll.outputs.run-id }}
+    steps:
+      - name: Poll CI completion
+        id: poll
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Waiting for Continuous Integration to complete..."
+          for i in $(seq 1 20); do
+            RUN=$(gh api "/repos/${{ github.repository }}/actions/runs" \
+              -f head_sha="${{ github.event.pull_request.head.sha }}" \
+              -f event="pull_request" \
+              --jq '[.workflow_runs[] | select(.name == "Continuous Integration")] | first')
+
+            STATUS=$(echo "$RUN" | jq -r '.status // "not_found"')
+            CONCLUSION=$(echo "$RUN" | jq -r '.conclusion // empty')
+            RUN_ID=$(echo "$RUN" | jq -r '.id // empty')
+
+            echo "CI status: $STATUS (attempt $i/20)"
+
+            if [ "$STATUS" = "completed" ]; then
+              echo "conclusion=$CONCLUSION" >> "$GITHUB_OUTPUT"
+              echo "run-id=$RUN_ID" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+
+            sleep 30
+          done
+
+          echo "conclusion=timeout" >> "$GITHUB_OUTPUT"
+
+  notify-failure:
+    needs: wait-for-ci
+    if: needs.wait-for-ci.outputs.conclusion != 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Post CI failure notice
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CONCLUSION: ${{ needs.wait-for-ci.outputs.conclusion }}
+          RUN_ID: ${{ needs.wait-for-ci.outputs.run-id }}
+        run: |
+          if [ "$CONCLUSION" = "timeout" ]; then
+            BODY="> [!WARNING]
+          > **Claude Code Review — Skipped**
+          >
+          > CI did not complete within the 10-minute timeout. The review was skipped to avoid unnecessary resource usage.
+          > Push a new commit to trigger it again."
+          else
+            FAILED_JOBS=$(gh api "/repos/${{ github.repository }}/actions/runs/$RUN_ID/jobs" \
+              --jq '[.jobs[] | select(.conclusion == "failure") | "- `\(.name)`"] | join("\n")')
+
+            BODY="> [!CAUTION]
+          > **Claude Code Review — Cancelled**
+          >
+          > The review was paused because CI failed. Reviewing code that does not compile or pass tests would be wasteful.
+          >
+          > **Failed jobs:**
+          > $FAILED_JOBS
+          >
+          > Fix the errors and push a new commit to resume the review."
+          fi
+
+          gh pr comment "${{ github.event.pull_request.number }}" --body "$BODY"
+
+  review:
+    needs: wait-for-ci
+    if: needs.wait-for-ci.outputs.conclusion == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -18,6 +93,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 1
+
       - uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -25,14 +101,8 @@ jobs:
             --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"
           track_progress: true
           prompt: |
-            Review the changes in this PR for the `topiq` TypeScript MQTT client library.
+            You are a first-pass assistant for the maintainer of `topiq`, an MQTT client library. Read README.md for general context and CLAUDE.md for conventions.
 
-            Focus only on real issues and relevant suggestions — no descriptions of what the code does.
+            Your goal is to give the maintainer a brief, useful summary before they do their own review — not to replace it. Describe what this PR actually changes and why it matters, then flag anything that deserves closer attention: questionable design choices, risky areas, or anything that looks out of place. CI already handles correctness mechanically, so skip what tools catch.
 
-            Check for:
-            - Type safety: incorrect generics, unsafe casts, missing constraints, `any` leakage
-            - API consistency: `on`, `emit`, `stream`, wildcard topics, `AbortSignal` lifecycle
-            - MQTT edge cases: wildcard matching correctness, topic validation, retained/QoS handling
-            - Test quality: missing edge cases, weak assertions, untested error paths
-
-            Use `gh pr comment` for general feedback. Use inline comments for specific line-level issues.
+            Be brief and to the point — only include what genuinely helps the maintainer. Use `gh pr comment` to post it.
