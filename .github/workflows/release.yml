@@ -27,13 +27,16 @@ jobs:
       - name: Create dist zip
         run: zip -r topiq-${{ github.ref_name }}.zip dist/
 
-      - name: Get tag message
+      - name: Get tag message and previous tag
         id: tag_message
         run: |
           DELIMITER=$(openssl rand -hex 16)
           echo "body<<${DELIMITER}" >> "$GITHUB_OUTPUT"
           git tag -l --format='%(contents)' "${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
           echo "${DELIMITER}" >> "$GITHUB_OUTPUT"
+
+          PREV=$(git tag --sort=-version:refname | grep -v "^${{ github.ref_name }}$" | head -1)
+          echo "previous_tag=${PREV}" >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2.3.2
@@ -42,4 +45,5 @@ jobs:
           name: ${{ github.ref_name }}
           body: ${{ steps.tag_message.outputs.body }}
           generate_release_notes: true
+          previous_tag_name: ${{ steps.tag_message.outputs.previous_tag }}
           files: topiq-${{ github.ref_name }}.zip
