@@ -145,6 +145,22 @@ gh pr merge <number> --squash
 git checkout main && git pull
 ```
 
+### Multiple PRs in One Session
+
+When creating several PRs at once, stack them so each branch starts from the previous one — not all from `main`. This avoids the "branch not up to date" cycle on sequential merges.
+
+```bash
+git checkout -b pr-1 && git add <files> && git commit && git push
+gh pr create --head pr-1 --base main
+
+git checkout -b pr-2 && git add <files> && git commit && git push
+gh pr create --head pr-2 --base pr-1
+
+# merge in order: pr-1 first, then pr-2 (its base updates automatically)
+```
+
+Only stack when PRs are sequential and independent. If they touch the same files, resolve that before splitting into separate PRs.
+
 ## Release Procedure
 
 - npm is published via GitHub Actions using OIDC Trusted Publisher — do NOT use `registry-url` in `actions/setup-node` (it injects `_authToken` which blocks OIDC); use `publishConfig` in `package.json` and `npm install -g npm@latest` before publishing
