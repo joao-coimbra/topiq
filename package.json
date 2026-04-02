@@ -1,9 +1,31 @@
 {
   "name": "topiq",
-  "description": "Type-safe MQTT client for TypeScript — define topics with Zod schemas and get fully typed publish, subscribe, and streaming",
   "version": "0.3.3",
+  "description": "Type-safe MQTT client for TypeScript — define topics with Zod schemas and get fully typed publish, subscribe, and streaming",
   "type": "module",
-  "private": false,
+  "license": "MIT",
+  "author": {
+    "name": "João Henrique Benatti Coimbra",
+    "url": "https://github.com/joao-coimbra"
+  },
+  "homepage": "https://github.com/joao-coimbra/topiq#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/joao-coimbra/topiq.git"
+  },
+  "bugs": {
+    "url": "https://github.com/joao-coimbra/topiq/issues"
+  },
+  "keywords": [
+    "mqtt",
+    "mqtt-client",
+    "type-safe",
+    "typescript",
+    "zod",
+    "iot",
+    "pubsub",
+    "bun"
+  ],
   "files": [
     "dist",
     "README.md"
@@ -25,29 +47,6 @@
     },
     "./package.json": "./package.json"
   },
-  "keywords": [
-    "mqtt",
-    "mqtt-client",
-    "type-safe",
-    "typescript",
-    "zod",
-    "iot",
-    "pubsub",
-    "bun"
-  ],
-  "author": {
-    "name": "João Henrique Benatti Coimbra",
-    "url": "https://github.com/joao-coimbra"
-  },
-  "license": "MIT",
-  "homepage": "https://github.com/joao-coimbra/topiq#readme",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/joao-coimbra/topiq.git"
-  },
-  "bugs": {
-    "url": "https://github.com/joao-coimbra/topiq/issues"
-  },
   "publishConfig": {
     "registry": "https://registry.npmjs.org/",
     "access": "public"
@@ -61,7 +60,10 @@
     "fix": "ultracite fix",
     "release": "bun publish --access public",
     "prepublishOnly": "bun run build",
-    "prepare": "bunx husky"
+    "prepare": "husky"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
   },
   "dependencies": {
     "mqtt": "^5.15.0",
@@ -73,8 +75,5 @@
     "bunup": "^0.16.31",
     "husky": "^9.1.7",
     "ultracite": "7.3.2"
-  },
-  "peerDependencies": {
-    "typescript": "^5"
   }
 }
