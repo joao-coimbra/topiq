@@ -13,6 +13,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4.2.2
+        with:
+          fetch-depth: 0
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -27,14 +29,9 @@ jobs:
       - name: Create dist zip
         run: zip -r topiq-${{ github.ref_name }}.zip dist/
 
-      - name: Get tag message and previous tag
+      - name: Get previous tag
         id: tag_message
         run: |
-          DELIMITER=$(openssl rand -hex 16)
-          echo "body<<${DELIMITER}" >> "$GITHUB_OUTPUT"
-          git tag -l --format='%(contents)' "${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
-          echo "${DELIMITER}" >> "$GITHUB_OUTPUT"
-
           PREV=$(git tag --sort=-version:refname | grep -v "^${{ github.ref_name }}$" | head -1)
           echo "previous_tag=${PREV}" >> "$GITHUB_OUTPUT"
 
@@ -43,7 +40,6 @@ jobs:
         with:
           tag_name: ${{ github.ref_name }}
           name: ${{ github.ref_name }}
-          body: ${{ steps.tag_message.outputs.body }}
           generate_release_notes: true
           previous_tag_name: ${{ steps.tag_message.outputs.previous_tag }}
           files: topiq-${{ github.ref_name }}.zip
