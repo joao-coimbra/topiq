@@ -63,13 +63,14 @@
     "prepare": "husky"
   },
   "peerDependencies": {
-    "typescript": "^5"
+    "typescript": "^5",
+    "zod": "^4.0.0"
   },
   "dependencies": {
-    "mqtt": "^5.15.0",
-    "zod": "^4.3.6"
+    "mqtt": "^5.15.0"
   },
   "devDependencies": {
+    "zod": "^4.3.6",
     "@biomejs/biome": "2.4.7",
     "@commitlint/cli": "^20.5.0",
     "@commitlint/config-conventional": "^20.5.0",
