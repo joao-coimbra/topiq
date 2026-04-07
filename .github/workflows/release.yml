@@ -13,6 +13,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4.2.2
+        with:
+          fetch-depth: 0
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -32,7 +34,11 @@ jobs:
         run: |
           DELIMITER=$(openssl rand -hex 16)
           echo "body<<${DELIMITER}" >> "$GITHUB_OUTPUT"
-          git tag -l --format='%(contents)' "${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          # Only emit the tag body when it is an annotated tag; lightweight tags
+          # have no stored message and %(contents) falls back to the commit message.
+          if git cat-file -t "${{ github.ref_name }}" 2>/dev/null | grep -q "^tag$"; then
+            git tag -l --format='%(contents)' "${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          fi
           echo "${DELIMITER}" >> "$GITHUB_OUTPUT"
 
           PREV=$(git tag --sort=-version:refname | grep -v "^${{ github.ref_name }}$" | head -1)
