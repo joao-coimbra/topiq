@@ -29,18 +29,9 @@ jobs:
       - name: Create dist zip
         run: zip -r topiq-${{ github.ref_name }}.zip dist/
 
-      - name: Get tag message and previous tag
+      - name: Get previous tag
         id: tag_message
         run: |
-          DELIMITER=$(openssl rand -hex 16)
-          echo "body<<${DELIMITER}" >> "$GITHUB_OUTPUT"
-          # Only emit the tag body when it is an annotated tag; lightweight tags
-          # have no stored message and %(contents) falls back to the commit message.
-          if git cat-file -t "${{ github.ref_name }}" 2>/dev/null | grep -q "^tag$"; then
-            git tag -l --format='%(contents)' "${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
-          fi
-          echo "${DELIMITER}" >> "$GITHUB_OUTPUT"
-
           PREV=$(git tag --sort=-version:refname | grep -v "^${{ github.ref_name }}$" | head -1)
           echo "previous_tag=${PREV}" >> "$GITHUB_OUTPUT"
 
@@ -49,7 +40,6 @@ jobs:
         with:
           tag_name: ${{ github.ref_name }}
           name: ${{ github.ref_name }}
-          body: ${{ steps.tag_message.outputs.body }}
           generate_release_notes: true
           previous_tag_name: ${{ steps.tag_message.outputs.previous_tag }}
           files: topiq-${{ github.ref_name }}.zip
