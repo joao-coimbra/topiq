@@ -62,11 +62,15 @@ client.on(deviceStatus, (data, { topic, params }) => {
 
 ## Install
 
+Topiq requires **zod** as a peer dependency. Install both together:
+
 ```bash
-bun add topiq
+bun add topiq zod
 # or
-npm install topiq
+npm install topiq zod
 ```
+
+If you already have zod in your project, installing `topiq` alone is enough — just make sure zod `>=3.0.0` is present.
 
 ---
 
