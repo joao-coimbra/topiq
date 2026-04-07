@@ -207,6 +207,17 @@ bun run release --tag next
 - Do NOT change the trigger to `workflow_run` — `track_progress` breaks in that mode (`AutomationContext` has no `entityNumber`)
 - Test the pre-commit hook with `sh .husky/pre-commit`, not `bun x husky`
 
+## Peer Dependencies
+
+`zod` is a **peer dependency** (`>=3.0.0`), not a bundled dependency.
+
+**Why:** Consumers import `z` directly to define their topic schemas. If zod were a hard dependency, consumers could end up with two separate zod instances in their bundle — which breaks `instanceof` checks and causes subtle runtime failures. Declaring it as a peer dependency ensures a single shared instance controlled by the consumer.
+
+**What maintainers should consider when adding new dependencies:**
+- If a library is imported by the consumer in their own code (e.g., for schema definitions, type utilities), it belongs in `peerDependencies`, not `dependencies`.
+- If a library is purely internal to topiq's runtime (e.g., `mqtt`), it belongs in `dependencies`.
+- Always add peer dependencies to `devDependencies` as well so local dev and tests work without extra setup.
+
 ## Project Architecture
 
 ```
